@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Live Map{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Live Flight Map</h1>
+    <p class="page-sub">Tracking <span id="mapCount">—</span> aircraft · refreshes every 15s</p>
+  </div>
+  <div class="header-actions">
+    <button class="btn-outline" onclick="centerIndia()"><i class="ti ti-current-location"></i> India</button>
+    <button class="btn-outline" onclick="centerWorld()"><i class="ti ti-world"></i> World</button>
+  </div>
+</div>
+
+<div class="card map-full-card">
+  <div id="liveMap" style="height:calc(100vh - 220px);min-height:480px;border-radius:0 0 10px 10px"></div>
+  <div class="map-overlay-stats">
+    <div class="mos-item"><span>Aircraft</span><b id="mosTotal">—</b></div>
+    <div class="mos-item"><span>Avg Alt</span><b id="mosAlt">—</b></div>
+    <div class="mos-item"><span>Avg Spd</span><b id="mosSpd">—</b></div>
+    <div class="mos-item"><span>Last update</span><b id="mosTime">—</b></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const map = L.map('liveMap',{zoomControl:true}).setView([20,80],5);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+  maxZoom:18,attribution:'© OpenStreetMap © CARTO'
+}).addTo(map);
+
+const planeIcon=(color,heading)=>L.divIcon({
+  className:'',
+  html:`<div style="width:14px;height:14px;transform:rotate(${heading||0}deg);display:flex;align-items:center;justify-content:center">
+    <svg viewBox="0 0 16 16" width="14" height="14">
+      <polygon points="8,0 12,14 8,11 4,14" fill="${color}" stroke="rgba(255,255,255,.4)" stroke-width="0.5"/>
+    </svg>
+  </div>`,
+  iconSize:[14,14],iconAnchor:[7,7]
+});
+
+let markers={};
+const COLORS={default:'#00d4ff',cargo:'#00ff88',prop:'#ffb347'};
+
+function getColor(f){
+  if(!f.callsign)return COLORS.default;
+  const cs=f.callsign.toUpperCase();
+  if(cs.startsWith('EK')||cs.startsWith('QR')||cs.startsWith('SQ'))return COLORS.cargo;
+  return COLORS.default;
+}
+
+async function loadFlights(){
+  try{
+    const r=await fetch('/api/flights');
+    const d=await r.json();
+    const aircraft=d.aircraft||[];
+    updateMap(aircraft);
+    const time=new Date().toLocaleTimeString();
+    document.getElementById('mapCount').textContent=aircraft.length.toLocaleString();
+    document.getElementById('mosTotal').textContent=aircraft.length.toLocaleString();
+    document.getElementById('mosTime').textContent=time;
+    const airborne=aircraft.filter(f=>!f.on_ground);
+    if(airborne.length){
+      const avgAlt=Math.round(airborne.reduce((a,f)=>a+(f.altitude||0),0)/airborne.length);
+      const avgSpd=Math.round(airborne.reduce((a,f)=>a+(f.speed||0),0)/airborne.length);
+      document.getElementById('mosAlt').textContent=avgAlt.toLocaleString()+' ft';
+      document.getElementById('mosSpd').textContent=avgSpd+' kts';
+    }
+  }catch(e){console.error(e);}
+}
+
+function updateMap(aircraft){
+  const seen=new Set();
+  aircraft.forEach(f=>{
+    if(!f.latitude||!f.longitude)return;
+    seen.add(f.icao24);
+    const color=getColor(f);
+    const popup=`<div class="map-popup">
+      <div class="mp-cs">${f.callsign||f.icao24}</div>
+      <table class="mp-table">
+        <tr><td>ICAO24</td><td>${f.icao24}</td></tr>
+        <tr><td>Altitude</td><td>${(f.altitude??'—').toLocaleString()} ft</td></tr>
+        <tr><td>Speed</td><td>${f.speed??'—'} kts</td></tr>
+        <tr><td>Heading</td><td>${f.heading??'—'}°</td></tr>
+        <tr><td>Country</td><td>${f.origin_country||'—'}</td></tr>
+        <tr><td>Lat/Lon</td><td>${f.latitude?.toFixed(3)}, ${f.longitude?.toFixed(3)}</td></tr>
+      </table>
+      <a href="/aircraft/${f.icao24}" class="mp-link">View flight trail →</a>
+    </div>`;
+
+    if(markers[f.icao24]){
+      markers[f.icao24].setLatLng([f.latitude,f.longitude]);
+      markers[f.icao24].setPopupContent(popup);
+      markers[f.icao24].setIcon(planeIcon(color,f.heading));
+    } else {
+      markers[f.icao24]=L.marker([f.latitude,f.longitude],{icon:planeIcon(color,f.heading)})
+        .bindPopup(popup,{maxWidth:240}).addTo(map);
+    }
+  });
+  // Remove stale markers
+  Object.keys(markers).forEach(k=>{
+    if(!seen.has(k)){map.removeLayer(markers[k]);delete markers[k];}
+  });
+}
+
+function centerIndia(){map.setView([20,80],5);}
+function centerWorld(){map.setView([20,0],2);}
+
+loadFlights();
+setInterval(loadFlights,15000);
+</script>
+{% endblock %}

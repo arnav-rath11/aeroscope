@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Analytics{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Analytics Dashboard</h1>
+    <p class="page-sub">Historical air traffic insights</p>
+  </div>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card accent-blue">
+    <div class="stat-label">Total Aircraft (DB)</div>
+    <div class="stat-val">{{ total_aircraft | default(0) }}</div>
+    <div class="stat-change">All unique aircraft</div>
+    <i class="ti ti-plane stat-icon"></i>
+  </div>
+  <div class="stat-card accent-green">
+    <div class="stat-label">Position Records</div>
+    <div class="stat-val">{{ '{:,}'.format(total_positions | default(0)) }}</div>
+    <div class="stat-change">Total tracked positions</div>
+    <i class="ti ti-map-pin stat-icon"></i>
+  </div>
+  <div class="stat-card accent-amber">
+    <div class="stat-label">Active Now</div>
+    <div class="stat-val" id="activeNow">—</div>
+    <div class="stat-change">From live API</div>
+    <i class="ti ti-radar-2 stat-icon"></i>
+  </div>
+  <div class="stat-card accent-purple">
+    <div class="stat-label">Peak Hour</div>
+    <div class="stat-val">{{ hourly | max(attribute='count') | map(attribute='hour') | first if hourly else '—' }}</div>
+    <div class="stat-change">Most activity</div>
+    <i class="ti ti-clock stat-icon"></i>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title"><i class="ti ti-chart-bar"></i> Tracking Activity · Last 24 Hours</span>
+  </div>
+  <canvas id="hourlyChart" height="180"></canvas>
+</div>
+
+<div class="two-col">
+  <div class="card">
+    <div class="card-header"><span class="card-title"><i class="ti ti-chart-pie"></i> Traffic by Hour</span></div>
+    <div id="hourlyTable" class="hourly-table">
+      {% for h in hourly %}
+      <div class="ht-row">
+        <span class="ht-hour">{{ h.hour }}</span>
+        <div class="ht-bar-wrap">
+          <div class="ht-bar" style="width:{{ [h.count * 100 // [hourly | max(attribute='count'), 1] | max, 4] | max }}%"></div>
+        </div>
+        <span class="ht-count">{{ h.count }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header"><span class="card-title"><i class="ti ti-info-circle"></i> Data Sources</span></div>
+    <div class="detail-grid">
+      <div class="dg-item"><label>Primary API</label><b>OpenSky Network</b></div>
+      <div class="dg-item"><label>Refresh Rate</label><b>15 seconds</b></div>
+      <div class="dg-item"><label>Coverage</label><b>India Region (default)</b></div>
+      <div class="dg-item"><label>Storage</label><b>SQLite / PostgreSQL</b></div>
+      <div class="dg-item"><label>Data Format</label><b>OpenSky State Vectors</b></div>
+      <div class="dg-item"><label>Auth</label><b>Via env vars</b></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const hourly={{ hourly | tojson | safe }};
+const labels=hourly.map(h=>h.hour);
+const counts=hourly.map(h=>h.count);
+const maxC=Math.max(...counts,1);
+const bgs=counts.map(c=>`rgba(0,212,255,${0.2+0.7*(c/maxC)})`);
+
+new Chart(document.getElementById('hourlyChart'),{
+  type:'bar',data:{labels,datasets:[{data:counts,backgroundColor:bgs,borderColor:'#00d4ff55',borderWidth:1,borderRadius:4}]},
+  options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{grid:{color:'#1e2d4a55'}},y:{grid:{color:'#1e2d4a55'}}}}
+});
+
+fetch('/api/stats').then(r=>r.json()).then(d=>{
+  document.getElementById('activeNow').textContent=d.total?.toLocaleString()??'—';
+});
+</script>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Search{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Aircraft Search</h1>
+    <p class="page-sub">Search by callsign or ICAO24 identifier</p>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <form action="/search" method="get" class="search-form">
+    <input type="text" name="q" value="{{ query }}" placeholder="Enter callsign (e.g. AI202) or ICAO24 (e.g. a3c6f1)…" class="search-big-input" autofocus>
+    <button type="submit" class="btn-primary"><i class="ti ti-search"></i> Search</button>
+  </form>
+</div>
+
+{% if query %}
+  {% if results %}
+    <div class="result-count">Found <b>{{ results|length }}</b> aircraft matching "{{ query }}"</div>
+    <div class="results-grid">
+      {% for f in results %}
+      <a href="/aircraft/{{ f.icao24 }}" class="result-card">
+        <div class="rc-header">
+          <span class="rc-cs">{{ f.callsign or f.icao24 }}</span>
+          <span class="rc-badge {% if f.on_ground %}ground{% else %}air{% endif %}">
+            {{ 'On Ground' if f.on_ground else 'Airborne' }}
+          </span>
+        </div>
+        <div class="rc-grid">
+          <div><label>ICAO24</label><span>{{ f.icao24 }}</span></div>
+          <div><label>Country</label><span>{{ f.origin_country or '—' }}</span></div>
+          <div><label>Altitude</label><span class="green">{{ '{:,}'.format(f.altitude) if f.altitude else '—' }} ft</span></div>
+          <div><label>Speed</label><span>{{ f.speed or '—' }} kts</span></div>
+          <div><label>Heading</label><span>{{ f.heading or '—' }}°</span></div>
+          <div><label>Lat / Lon</label><span>{{ '%.3f'|format(f.latitude) }}, {{ '%.3f'|format(f.longitude) }}</span></div>
+        </div>
+        <div class="rc-footer">View flight trail →</div>
+      </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <i class="ti ti-plane-off"></i>
+      <h3>No aircraft found</h3>
+      <p>No active aircraft matched "{{ query }}". Try a different callsign or ICAO24.</p>
+    </div>
+  {% endif %}
+{% else %}
+  <div class="empty-state">
+    <i class="ti ti-search"></i>
+    <h3>Search the skies</h3>
+    <p>Enter a flight callsign (AI-202, 6E-881) or an ICAO24 hex code to find an aircraft.</p>
+  </div>
+{% endif %}
+{% endblock %}

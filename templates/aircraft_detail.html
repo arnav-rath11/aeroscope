@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}{{ icao24 | upper }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">
+      {{ live.callsign if live else icao24 | upper }}
+      {% if live and not live.on_ground %}
+        <span class="badge-air">Airborne</span>
+      {% elif live %}
+        <span class="badge-ground">On Ground</span>
+      {% endif %}
+    </h1>
+    <p class="page-sub">ICAO24: {{ icao24 }} · {{ live.origin_country if live else 'Unknown origin' }}</p>
+  </div>
+  <a href="/map" class="btn-outline"><i class="ti ti-arrow-left"></i> Back to Map</a>
+</div>
+
+<div class="two-col">
+  <!-- Trail Map -->
+  <div class="card map-card">
+    <div class="card-header">
+      <span class="card-title"><i class="ti ti-route"></i> Flight Trail</span>
+      <span class="card-sub">{{ history | length }} position records</span>
+    </div>
+    <div id="trailMap" style="height:380px;border-radius:0 0 10px 10px"></div>
+  </div>
+
+  <!-- Live stats -->
+  <div class="side-col">
+    <div class="card">
+      <div class="card-header"><span class="card-title"><i class="ti ti-info-circle"></i> Live Data</span></div>
+      {% if live %}
+      <div class="detail-grid">
+        <div class="dg-item"><label>Callsign</label><b>{{ live.callsign or '—' }}</b></div>
+        <div class="dg-item"><label>ICAO24</label><b>{{ live.icao24 }}</b></div>
+        <div class="dg-item"><label>Altitude</label><b class="green">{{ '{:,}'.format(live.altitude) if live.altitude else '—' }} ft</b></div>
+        <div class="dg-item"><label>Geo Alt</label><b>{{ '{:,}'.format(live.geo_altitude) if live.geo_altitude else '—' }} ft</b></div>
+        <div class="dg-item"><label>Speed</label><b>{{ live.speed or '—' }} kts</b></div>
+        <div class="dg-item"><label>Heading</label><b>{{ live.heading or '—' }}°</b></div>
+        <div class="dg-item"><label>Vert. Rate</label><b>{{ live.vertical_rate or '0' }} fpm</b></div>
+        <div class="dg-item"><label>Squawk</label><b>{{ live.squawk or '—' }}</b></div>
+        <div class="dg-item"><label>Latitude</label><b>{{ '%.4f'|format(live.latitude) }}</b></div>
+        <div class="dg-item"><label>Longitude</label><b>{{ '%.4f'|format(live.longitude) }}</b></div>
+        <div class="dg-item"><label>Country</label><b>{{ live.origin_country or '—' }}</b></div>
+        <div class="dg-item"><label>On Ground</label><b>{{ 'Yes' if live.on_ground else 'No' }}</b></div>
+      </div>
+      {% else %}
+      <div class="empty-msg">No live data available. Aircraft may be offline.</div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="card-header"><span class="card-title"><i class="ti ti-history"></i> History</span></div>
+      <div class="dg-item"><label>DB Records</label><b>{{ history | length }}</b></div>
+      {% if aircraft %}
+      <div class="dg-item"><label>First seen</label><b>{{ aircraft.created_at.strftime('%Y-%m-%d %H:%M') }}</b></div>
+      <div class="dg-item"><label>Last updated</label><b>{{ aircraft.updated_at.strftime('%Y-%m-%d %H:%M') }}</b></div>
+      {% endif %}
+      <a href="/api/history/{{ icao24 }}" target="_blank" class="btn-outline btn-sm" style="margin-top:10px">
+        <i class="ti ti-download"></i> Export JSON
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const trailMap = L.map('trailMap',{zoomControl:true}).setView([20,80],5);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:18}).addTo(trailMap);
+
+const history = {{ history | tojson(indent=2) | safe }};
+const liveData = {{ live | tojson | safe }};
+
+// Draw trail from history
+if(history.length){
+  const coords = history.map(p=>[p.latitude,p.longitude]).filter(p=>p[0]&&p[1]);
+  if(coords.length){
+    // Trail line
+    L.polyline(coords,{color:'#00d4ff',weight:2,opacity:.6,dashArray:'4 4'}).addTo(trailMap);
+    // Start marker
+    L.circleMarker(coords[0],{radius:5,color:'#00ff88',fillColor:'#00ff88',fillOpacity:.8}).bindPopup('Start').addTo(trailMap);
+    // Position dots (sample every 10th)
+    coords.filter((_,i)=>i%10===0).forEach(c=>{
+      L.circleMarker(c,{radius:3,color:'#00d4ff55',fillColor:'#00d4ff',fillOpacity:.5}).addTo(trailMap);
+    });
+    trailMap.fitBounds(coords);
+  }
+}
+
+// Current position
+if(liveData && liveData.latitude && liveData.longitude){
+  const icon = L.divIcon({className:'',
+    html:`<div style="width:16px;height:16px;transform:rotate(${liveData.heading||0}deg)">
+      <svg viewBox="0 0 16 16" width="16" height="16">
+        <polygon points="8,0 12,14 8,11 4,14" fill="#00d4ff" stroke="white" stroke-width="0.8"/>
+      </svg></div>`,
+    iconSize:[16,16],iconAnchor:[8,8]
+  });
+  L.marker([liveData.latitude,liveData.longitude],{icon})
+    .bindPopup(`<b>${liveData.callsign||'{{ icao24 }}'}</b><br>${liveData.altitude||'—'} ft · ${liveData.speed||'—'} kts`)
+    .addTo(trailMap).openPopup();
+  if(!history.length) trailMap.setView([liveData.latitude,liveData.longitude],8);
+}
+
+// Auto-refresh live position every 15s
+async function refreshLive(){
+  try{
+    const r=await fetch('/api/aircraft/{{ icao24 }}');
+    if(r.ok) console.log('Position updated');
+  }catch(e){}
+}
+setInterval(refreshLive,15000);
+</script>
+{% endblock %}

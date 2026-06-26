@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Airspace Dashboard</h1>
+    <p class="page-sub">Real-time global flight tracking · India Region</p>
+  </div>
+  <button class="btn-outline" onclick="refreshStats()">
+    <i class="ti ti-refresh" id="refreshIcon"></i> Refresh
+  </button>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid">
+  <div class="stat-card accent-blue">
+    <div class="stat-label">Active Aircraft</div>
+    <div class="stat-val" id="statTotal">—</div>
+    <div class="stat-change" id="statTotalChange">Loading…</div>
+    <i class="ti ti-plane stat-icon"></i>
+  </div>
+  <div class="stat-card accent-green">
+    <div class="stat-label">Avg. Altitude</div>
+    <div class="stat-val" id="statAlt">—</div>
+    <div class="stat-change">Cruising range</div>
+    <i class="ti ti-arrow-up stat-icon"></i>
+  </div>
+  <div class="stat-card accent-amber">
+    <div class="stat-label">Avg. Speed</div>
+    <div class="stat-val" id="statSpd">—</div>
+    <div class="stat-change">Knots average</div>
+    <i class="ti ti-wind stat-icon"></i>
+  </div>
+  <div class="stat-card accent-purple">
+    <div class="stat-label">Tracked (DB)</div>
+    <div class="stat-val">{{ total_tracked | default(0) }}</div>
+    <div class="stat-change">All time aircraft</div>
+    <i class="ti ti-database stat-icon"></i>
+  </div>
+</div>
+
+<!-- Map + sidebar -->
+<div class="two-col">
+  <div class="card map-card">
+    <div class="card-header">
+      <span class="card-title"><i class="ti ti-radar-2"></i> Live Airspace Map</span>
+      <div class="legend">
+        <span class="leg-item"><span class="leg-dot blue"></span>Jet</span>
+        <span class="leg-item"><span class="leg-dot amber"></span>Prop</span>
+        <span class="leg-item"><span class="leg-dot green"></span>Cargo</span>
+      </div>
+    </div>
+    <div id="dashMap" class="map-preview"></div>
+  </div>
+
+  <div class="side-col">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title"><i class="ti ti-plane"></i> Recent Flights</span>
+      </div>
+      <div id="flightList" class="flight-list">
+        <div class="loading-msg"><i class="ti ti-loader spin"></i> Loading flights…</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title"><i class="ti ti-search"></i> Quick Lookup</span>
+      </div>
+      <div class="search-row">
+        <input id="quickSearch" type="text" placeholder="Callsign or ICAO24…">
+        <button class="btn-primary" onclick="doQuickSearch()">Go</button>
+      </div>
+      <div id="quickResult" class="lookup-result">Enter a callsign to look up live data.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Charts row -->
+<div class="two-col">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title"><i class="ti ti-chart-bar"></i> Altitude Distribution</span>
+    </div>
+    <canvas id="altChart" height="160"></canvas>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title"><i class="ti ti-chart-line"></i> Aircraft Count · Live</span>
+    </div>
+    <canvas id="trendChart" height="160"></canvas>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Mini Leaflet map
+const dashMap = L.map('dashMap', {zoomControl:false, attributionControl:false}).setView([20, 80], 4);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {maxZoom:18}).addTo(dashMap);
+const planeIcon = (color) => L.divIcon({
+  className:'',
+  html:`<div style="width:10px;height:10px;background:${color};border-radius:50%;border:1.5px solid rgba(255,255,255,.3);box-shadow:0 0 6px ${color}88"></div>`,
+  iconSize:[10,10],iconAnchor:[5,5]
+});
+let markers=[];
+const colors={jet:'#00d4ff',prop:'#ffb347',cargo:'#00ff88'};
+
+async function refreshStats(){
+  document.getElementById('refreshIcon').style.animation='spin 1s linear infinite';
+  try {
+    const r = await fetch('/api/stats');
+    const d = await r.json();
+    document.getElementById('statTotal').textContent = d.total?.toLocaleString() ?? '—';
+    document.getElementById('statAlt').textContent = d.avg_altitude_ft ? d.avg_altitude_ft.toLocaleString()+' ft' : '—';
+    document.getElementById('statSpd').textContent = d.avg_speed_kts ? d.avg_speed_kts+' kts' : '—';
+    document.getElementById('statTotalChange').textContent = d.airborne+' airborne';
+    document.getElementById('lastUpdate').textContent = 'Updated just now';
+    document.querySelector('.live-count').textContent = d.total ?? '—';
+    document.getElementById('apiStatus').textContent = 'Online';
+  } catch(e) {
+    document.getElementById('apiStatus').textContent = 'Error';
+  }
+  document.getElementById('refreshIcon').style.animation='';
+}
+
+async function loadFlights(){
+  try {
+    const r = await fetch('/api/flights');
+    const d = await r.json();
+    updateMarkers(d.aircraft || []);
+    updateFlightList(d.aircraft || []);
+    updateAltChart(d.aircraft || []);
+  } catch(e){}
+}
+
+function updateMarkers(aircraft){
+  markers.forEach(m => dashMap.removeLayer(m));
+  markers=[];
+  aircraft.slice(0,500).forEach(f=>{
+    if(!f.latitude||!f.longitude) return;
+    const color = f.callsign?.startsWith('EK')||f.callsign?.startsWith('QR') ? colors.cargo : colors.jet;
+    const m = L.marker([f.latitude,f.longitude],{icon:planeIcon(color)})
+      .bindPopup(`<b>${f.callsign||f.icao24}</b><br>Alt: ${f.altitude??'—'} ft<br>Spd: ${f.speed??'—'} kts<br>Hdg: ${f.heading??'—'}°`)
+      .addTo(dashMap);
+    markers.push(m);
+  });
+}
+
+function updateFlightList(aircraft){
+  const el=document.getElementById('flightList');
+  const sample=aircraft.filter(f=>f.callsign).slice(0,8);
+  if(!sample.length){el.innerHTML='<div class="empty-msg">No flights currently tracked.</div>';return;}
+  el.innerHTML=sample.map(f=>`
+    <a href="/aircraft/${f.icao24}" class="flight-item">
+      <span class="flight-cs">${f.callsign||f.icao24}</span>
+      <div class="flight-info">
+        <div class="flight-route">${f.origin_country||'Unknown'}</div>
+        <div class="flight-detail">${f.speed??'—'} kts · ${f.heading??'—'}°</div>
+      </div>
+      <div class="flight-alt">
+        <div class="alt-val">${(f.altitude??'—').toLocaleString()}</div>
+        <div class="alt-unit">ft</div>
+      </div>
+    </a>`).join('');
+}
+
+// Alt histogram
+let altChart;
+function updateAltChart(aircraft){
+  const bins=[0,0,0,0,0,0];
+  aircraft.forEach(f=>{
+    const a=f.altitude||0;
+    if(a<10000)bins[0]++;
+    else if(a<20000)bins[1]++;
+    else if(a<30000)bins[2]++;
+    else if(a<35000)bins[3]++;
+    else if(a<40000)bins[4]++;
+    else bins[5]++;
+  });
+  const labels=['<10k','10-20k','20-30k','30-35k','35-40k','>40k'];
+  if(altChart){altChart.data.datasets[0].data=bins;altChart.update();return;}
+  altChart=new Chart(document.getElementById('altChart'),{
+    type:'bar',data:{labels,datasets:[{
+      data:bins,
+      backgroundColor:['#00d4ff22','#00d4ff33','#00d4ff55','#00d4ff88','#00d4ffbb','#00d4ff44'],
+      borderColor:'#00d4ff66',borderWidth:1,borderRadius:4
+    }]},
+    options:{responsive:true,plugins:{legend:{display:false}},
+      scales:{x:{grid:{color:'#1e2d4a55'}},y:{grid:{color:'#1e2d4a55'}}}}
+  });
+}
+
+// Trend sparkline
+const trendData=Array.from({length:20},()=>Math.floor(1000+Math.random()*4000));
+const trendLabels=Array.from({length:20},(_,i)=>i+'s');
+const trendChart=new Chart(document.getElementById('trendChart'),{
+  type:'line',data:{labels:trendLabels,datasets:[{
+    data:trendData,borderColor:'#00d4ff',backgroundColor:'#00d4ff10',
+    borderWidth:1.5,fill:true,tension:.4,pointRadius:0
+  }]},
+  options:{responsive:true,animation:false,plugins:{legend:{display:false}},
+    scales:{x:{display:false},y:{grid:{color:'#1e2d4a55'}}}}
+});
+
+async function doQuickSearch(){
+  const q=document.getElementById('quickSearch').value.trim();
+  if(!q)return;
+  const el=document.getElementById('quickResult');
+  el.innerHTML='<i class="ti ti-loader spin"></i> Searching…';
+  try{
+    const r=await fetch(`/api/aircraft/${q}`);
+    if(r.ok){
+      const d=await r.json();
+      el.innerHTML=`<div class="lookup-card">
+        <div class="lc-cs">${d.callsign||d.icao24}</div>
+        <div class="lc-grid">
+          <div><span>Altitude</span><b>${d.altitude??'—'} ft</b></div>
+          <div><span>Speed</span><b>${d.speed??'—'} kts</b></div>
+          <div><span>Heading</span><b>${d.heading??'—'}°</b></div>
+          <div><span>Country</span><b>${d.origin_country||'—'}</b></div>
+        </div>
+        <a href="/aircraft/${d.icao24}" class="btn-primary btn-sm">View Details →</a>
+      </div>`;
+    } else {
+      el.innerHTML='<div class="empty-msg">Aircraft not found or offline.</div>';
+    }
+  }catch(e){el.innerHTML='<div class="empty-msg">Search failed.</div>';}
+}
+
+document.getElementById('quickSearch').addEventListener('keydown',e=>{if(e.key==='Enter')doQuickSearch();});
+
+// Init and auto-refresh
+refreshStats();
+loadFlights();
+setInterval(()=>{loadFlights();refreshStats();},15000);
+
+// Trend update
+setInterval(()=>{
+  trendData.push(parseInt(document.getElementById('statTotal').textContent.replace(/,/g,''))||0);
+  trendData.shift();trendLabels.shift();trendLabels.push('now');
+  trendChart.update();
+},15000);
+</script>
+{% endblock %}

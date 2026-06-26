@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Airports · {{ code }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Airport Monitor · {{ code }}</h1>
+    <p class="page-sub">{{ name }} · {{ radius }}km radius · {{ traffic | length }} aircraft</p>
+  </div>
+</div>
+
+<div class="airport-selector">
+  {% for a_code, a_name in airports.items() %}
+  <a href="/airports?code={{ a_code }}" class="airport-chip {% if a_code == code %}active{% endif %}">
+    {{ a_code }}
+  </a>
+  {% endfor %}
+  <form action="/airports" method="get" class="radius-form">
+    <input type="hidden" name="code" value="{{ code }}">
+    <label>Radius:
+      <select name="radius" onchange="this.form.submit()">
+        {% for r in [25, 50, 100, 200] %}
+        <option value="{{ r }}" {% if r == radius %}selected{% endif %}>{{ r }}km</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+</div>
+
+<div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+  <div class="stat-card accent-blue">
+    <div class="stat-label">Aircraft Nearby</div>
+    <div class="stat-val">{{ traffic | length }}</div>
+    <i class="ti ti-plane stat-icon"></i>
+  </div>
+  <div class="stat-card accent-green">
+    <div class="stat-label">Avg. Altitude</div>
+    <div class="stat-val">{{ '{:,}'.format(avg_alt) }} ft</div>
+    <i class="ti ti-arrow-up stat-icon"></i>
+  </div>
+  <div class="stat-card accent-amber">
+    <div class="stat-label">Avg. Speed</div>
+    <div class="stat-val">{{ avg_spd }} kts</div>
+    <i class="ti ti-wind stat-icon"></i>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="card map-card">
+    <div class="card-header"><span class="card-title"><i class="ti ti-map-pin"></i> Airport Area</span></div>
+    <div id="airportMap" style="height:380px;border-radius:0 0 10px 10px"></div>
+  </div>
+
+  <div class="card" style="overflow-y:auto;max-height:480px">
+    <div class="card-header"><span class="card-title"><i class="ti ti-list"></i> Nearby Aircraft</span></div>
+    {% if traffic %}
+      {% for f in traffic %}
+      <a href="/aircraft/{{ f.icao24 }}" class="flight-item">
+        <span class="flight-cs">{{ f.callsign or f.icao24 }}</span>
+        <div class="flight-info">
+          <div class="flight-route">{{ f.origin_country or 'Unknown' }} · {{ f.distance_km }}km away</div>
+          <div class="flight-detail">{{ f.speed or '—' }} kts · {{ f.heading or '—' }}°</div>
+        </div>
+        <div class="flight-alt">
+          <div class="alt-val">{{ '{:,}'.format(f.altitude) if f.altitude else '—' }}</div>
+          <div class="alt-unit">ft</div>
+        </div>
+      </a>
+      {% endfor %}
+    {% else %}
+      <div class="empty-msg">No aircraft currently within {{ radius }}km of {{ code }}.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const AIRPORT_COORDS={
+  BLR:[13.1979,77.7063],DEL:[28.5562,77.1000],
+  BOM:[19.0896,72.8656],MAA:[12.9941,80.1709],HYD:[17.2403,78.4294]
+};
+const code='{{ code }}';
+const center=AIRPORT_COORDS[code]||[20,80];
+const radius={{ radius }};
+
+const map=L.map('airportMap',{zoomControl:true}).setView(center,9);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:18}).addTo(map);
+
+// Radius circle
+L.circle(center,{radius:radius*1000,color:'#00d4ff',fillColor:'#00d4ff',fillOpacity:.05,weight:1,dashArray:'6 4'}).addTo(map);
+// Airport marker
+L.circleMarker(center,{radius:8,color:'#ffb347',fillColor:'#ffb347',fillOpacity:.8}).bindPopup(`<b>${code}</b>`).addTo(map).openPopup();
+
+const traffic={{ traffic | tojson | safe }};
+traffic.forEach(f=>{
+  if(!f.latitude||!f.longitude) return;
+  const icon=L.divIcon({className:'',
+    html:`<div style="width:12px;height:12px;transform:rotate(${f.heading||0}deg)">
+      <svg viewBox="0 0 16 16" width="12" height="12">
+        <polygon points="8,0 12,14 8,11 4,14" fill="#00d4ff" stroke="rgba(255,255,255,.4)" stroke-width="0.5"/>
+      </svg></div>`,iconSize:[12,12],iconAnchor:[6,6]});
+  L.marker([f.latitude,f.longitude],{icon})
+    .bindPopup(`<b>${f.callsign||f.icao24}</b><br>${(f.altitude||0).toLocaleString()} ft · ${f.speed||0} kts<br>${f.distance_km}km from ${code}`)
+    .addTo(map);
+});
+</script>
+{% endblock %}

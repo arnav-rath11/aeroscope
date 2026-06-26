@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}AeroScope{% endblock %} · Flight Tracking</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="logo">
+    <div class="logo-icon"><div class="radar-dot"></div></div>
+    AeroScope
+  </div>
+  <div class="nav-center">
+    <a href="/" class="nav-pill {% if request.endpoint == 'dashboard.index' %}active{% endif %}">
+      <i class="ti ti-layout-dashboard"></i> Dashboard
+    </a>
+    <a href="/map" class="nav-pill {% if request.endpoint == 'aircraft.live_map' %}active{% endif %}">
+      <i class="ti ti-map-2"></i> Live Map
+    </a>
+    <a href="/search" class="nav-pill {% if request.endpoint == 'aircraft.search' %}active{% endif %}">
+      <i class="ti ti-search"></i> Search
+    </a>
+    <a href="/analytics" class="nav-pill {% if request.endpoint == 'analytics.analytics' %}active{% endif %}">
+      <i class="ti ti-chart-line"></i> Analytics
+    </a>
+    <a href="/airports" class="nav-pill {% if request.endpoint == 'airport.airports' %}active{% endif %}">
+      <i class="ti ti-building-airport"></i> Airports
+    </a>
+  </div>
+  <div class="nav-right">
+    <div class="live-badge" id="liveBadge"><div class="live-dot"></div> LIVE</div>
+    <span id="lastUpdate" class="nav-time">—</span>
+    <button class="theme-btn" onclick="toggleTheme()" title="Toggle theme">
+      <i class="ti ti-sun" id="themeIcon"></i>
+    </button>
+  </div>
+</nav>
+
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="sidebar-section">Overview</div>
+    <a href="/" class="sidebar-item {% if request.endpoint == 'dashboard.index' %}active{% endif %}">
+      <i class="ti ti-layout-dashboard"></i> Dashboard <span class="sidebar-badge live-count">—</span>
+    </a>
+    <a href="/map" class="sidebar-item {% if request.endpoint == 'aircraft.live_map' %}active{% endif %}">
+      <i class="ti ti-map-2"></i> Live Tracking
+    </a>
+    <a href="/search" class="sidebar-item {% if request.endpoint == 'aircraft.search' %}active{% endif %}">
+      <i class="ti ti-search"></i> Aircraft Search
+    </a>
+
+    <div class="sidebar-section">Monitor</div>
+    <a href="/airports" class="sidebar-item {% if request.endpoint == 'airport.airports' %}active{% endif %}">
+      <i class="ti ti-building-airport"></i> Airports <span class="sidebar-badge">5</span>
+    </a>
+    <a href="/analytics" class="sidebar-item {% if request.endpoint == 'analytics.analytics' %}active{% endif %}">
+      <i class="ti ti-chart-bar"></i> Analytics
+    </a>
+
+    <div class="sidebar-section">System</div>
+    <a href="/api/stats" target="_blank" class="sidebar-item">
+      <i class="ti ti-api"></i> API Status
+    </a>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-api-label">API Status</div>
+      <div class="api-status-row">
+        <span><span class="sdot green"></span>OpenSky API</span>
+        <span id="apiStatus" class="status-val green">Checking…</span>
+      </div>
+      <div class="api-status-row">
+        <span><span class="sdot green"></span>Database</span>
+        <span class="status-val green">OK</span>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+        <div class="alert alert-{{ cat }}"><i class="ti ti-info-circle"></i> {{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
